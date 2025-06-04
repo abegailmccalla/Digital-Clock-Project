@@ -1,0 +1,194 @@
+/*
+ * Digital_Clock.c
+ *
+ * Created: 10/13/2023 9:56:51 PM
+ * Author : abegail mccalla
+ */ 
+
+
+#define F_CPU 8000000UL
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdlib.h>
+#include <util/delay.h>
+
+#define LCD_PRT PORTB //LCD DATA PORT
+#define LCD_DDR DDRB //LCD DATA DDR
+#define LCD_PIN PINB //LCD DATA PIN
+#define LCD_EN 0 //LCD EN
+#define LCD_RS 1 //LCD RS
+#define LCD_RW 2 //LCD RW
+
+
+//initialize functions for LCD interfacing
+void lcdCommand( unsigned char cmnd );
+void lcdData( unsigned char data );
+void lcd_init(void);
+void lcd_gotoxy(unsigned char x, unsigned char y);
+void lcd_print( char * str );
+
+//functions controlling clock states
+void state_1(void); //Normal Clock State
+
+//initial state is set clock time
+unsigned char state = 1;
+unsigned char mode = 1;
+
+unsigned char hours = 12;
+unsigned char mins = 0;
+unsigned char secs = 0;
+
+char showhour[2];
+char showmin[2];
+char showsec[2];
+
+ISR(TIMER1_COMPA_vect);
+
+int main(void)
+{
+	DDRD = 0xFF;
+	PORTD = 0xFF;
+	
+	sei();
+	
+	lcd_init();
+	while (1)
+	{ 		
+		switch (state)
+		{
+			case 1:
+			state_1();
+			break;
+		}
+	}
+	return 0;
+}
+
+void lcdCommand(unsigned char cmnd ){
+	LCD_PRT = (LCD_PRT & 0x0F) | (cmnd & 0xF0);
+	LCD_PRT &= ~ (1<<LCD_RS); //RS = 0 for command
+	LCD_PRT &= ~ (1<<LCD_RW); //RW = 0 for write
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+	_delay_us(20); //wait
+	LCD_PRT = (LCD_PRT & 0x0F) | (cmnd << 4);
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+}
+
+void lcdData(unsigned char data ){
+	LCD_PRT = (LCD_PRT & 0x0F) | (data & 0xF0);
+	LCD_PRT |= (1<<LCD_RS); //RS = 1 for data
+	LCD_PRT &= ~ (1<<LCD_RW); //RW = 0 for write
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+	LCD_PRT = (LCD_PRT & 0x0F) | (data << 4);
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+}
+
+void lcd_init(void){
+	LCD_DDR = 0xFF; //LCD port is output
+	LCD_PRT &=~(1<<LCD_EN); //LCD_EN = 0
+	_delay_us(2000); //wait for stable power
+	lcdCommand(0x33); //$33 for 4-bit mode
+	_delay_us(100); //wait
+	lcdCommand(0x32); //$32 for 4-bit mode
+	_delay_us(100); //wait
+	lcdCommand(0x28); //$28 for 4-bit mode
+	_delay_us(100); //wait
+	lcdCommand(0x0e); //display on, cursor on
+	_delay_us(100); //wait
+	lcdCommand(0x01); //clear LCD
+	_delay_us(2000); //wait
+	lcdCommand(0x06); //shift cursor right
+	_delay_us(100);
+}
+
+void lcd_gotoxy(unsigned char x, unsigned char y)
+{ 
+	unsigned char firstCharAdr[] = {0x80, 0xC0, 0x94, 0xD4};
+	lcdCommand(firstCharAdr[y-1] + x - 1);
+	_delay_us(100);
+}
+
+void lcd_print( char * str )
+{
+	unsigned char i = 0;
+	while(str[i]!=0)
+	{
+		lcdData(str[i]);
+		i++;
+	}
+}
+
+ISR (TIMER1_COMPA_vect)
+{
+	secs++;
+
+	if(secs == 60)
+	{
+		secs = 0;
+		mins++;
+	}
+
+	if(mins == 60 )
+	{
+		mins = 0;
+		secs = 0;
+		hours++;
+	}
+
+	if (hours == 13 && mode == 1)
+	{
+		hours = 1;
+		mins = 0;
+		secs = 0;
+	}
+	
+	if (hours == 24 && mode == 2)
+	{
+		hours = 0;
+		mins = 0;
+		secs = 0;
+	}
+	
+
+}
+
+void state_1(void)
+{
+	TCCR1B = (1<<CS12|1<<CS10|1<<WGM12);
+	OCR1A = 977;
+	//Output Compare Interrupt Enabled
+	TIMSK = (1<<OCIE1A);
+	
+	lcd_gotoxy(1,1);
+	lcd_print("Current Time Is:");
+
+	lcd_gotoxy(1,2);
+	itoa(hours/10,showhour,10);
+	lcd_print(showhour);
+	itoa(hours%10,showhour,10);
+	lcd_print(showhour);
+	lcd_print(":");
+	
+	itoa(mins/10,showmin,10);
+	lcd_print(showmin);
+	itoa(mins%10,showmin,10);
+	lcd_print(showmin);
+	lcd_print(":");
+	
+	itoa(secs/10,showsec,10);
+	lcd_print(showsec);
+	itoa(secs%10,showsec,10);
+	lcd_print(showsec);
+}
+	
+
+

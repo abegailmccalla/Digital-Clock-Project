@@ -1,0 +1,39 @@
+Info: Reading netlist file 'C:\Users\abega\OneDrive\Desktop\School NOW\UWI Year 2 Semester 1\ELET2405\Digital Clock Project\ATM DTK\ATM DTK.net'.
+
+Info: Using reference designators to match symbols and footprints.
+
+Info: Processing symbol 'DS1:uwi_lib:1602A_LCD'.
+Info: Processing symbol 'SW1:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'SW2:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'SW3:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'SW4:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'SW5:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'SW6:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'SW7:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'SW8:foot prints:tactile_switch_uwi'.
+Info: Processing symbol 'R1:foot prints:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal'.
+Info: Processing symbol 'R2:foot prints:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal'.
+Info: Processing symbol 'D1:foot prints:LED_D5.0mm_Clear'.
+Info: Processing symbol 'Y1:foot prints:Crystal_HC49-4H_Vertical'.
+Info: Processing symbol 'C1:foot prints:C_Disc_D5.0mm_W2.5mm_P2.50mm'.
+Info: Processing symbol 'C2:foot prints:C_Disc_D5.0mm_W2.5mm_P2.50mm'.
+Info: Processing symbol 'Q1:Package_TO_SOT_THT:TO-92_Inline'.
+Info: Processing symbol 'jmp1:Package_TO_SOT_SMD:SOT-23'.
+Info: Processing symbol 'jmp2:Package_TO_SOT_SMD:SOT-23'.
+Info: Processing symbol 'U1:Package_DIP:DIP-20_W7.62mm'.
+Info: Processing symbol 'D2:Diode_SMD:D_SOD-123'.
+Info: Processing symbol 'BZ1:'.
+Info: Processing symbol 'RV1:'.
+Warning: No net found for symbol jmp1 pin 1.
+Warning: No net found for symbol jmp1 pin 2.
+Warning: No net found for symbol jmp1 pin 3.
+Warning: No net found for symbol jmp2 pin 1.
+Warning: No net found for symbol jmp2 pin 2.
+Warning: No net found for symbol jmp2 pin 3.
+Error: No footprint defined for symbol BZ1.
+Error: No footprint defined for symbol RV1.
+Error: Cannot add BZ1 (no footprint assigned).
+Error: Cannot add RV1 (no footprint assigned).
+
+
+Info: Total warnings: 6, errors: 2.

@@ -1,0 +1,587 @@
+/*
+ * Digital_Clock.c
+ *
+ * Created: 10/13/2023 9:56:51 PM
+ * Author : abegail mccalla (620157646)
+ */ 
+
+#define F_CPU 8000000UL
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdlib.h>
+#include <util/delay.h>
+
+#define LCD_CMD_CLEAR_DISPLAY 0x01
+#define LCD_PRT PORTB //LCD DATA PORT
+#define LCD_DDR DDRB //LCD DATA DDR
+#define LCD_PIN PINB //LCD DATA PIN
+#define LCD_EN 0 //LCD EN
+#define LCD_RS 1 //LCD RS
+#define LCD_RW 2 //LCD RW
+#define BUZZER_PIN (1 << PORTB3) // The buzzer is connected to PB3
+
+//Initialize functions for LCD interfacing
+void lcdCommand(unsigned char cmnd ), lcdData(unsigned char data ), lcd_init(void), lcd_gotoxy(unsigned char x, unsigned char y), lcd_print(char * str );
+
+//Functions controlling the clock states
+//Normal Clock State, Change Clock Mode State, Set Clock Alarm Time State, Snooze 5 Mins State, Show Time in 12 Hours, Show Alarm Time in 12 Hours, Show Time in 24 Hours, Show Alarm Time (24 Hours)
+void state_1(void), state_2(void), state_3(void), state_4(), show12(void), show_12(void), show24(void), showAlarm(void);
+//Increment Set Clock Time Hours, Increment Set Alarm Time Hours, Increment Minutes and Seconds
+unsigned char incrementHour(unsigned char H), incrementAHour(unsigned char AH), incrementMS(unsigned char MS);	
+						
+//Initialize variables controlling the clock
+// Default State Is 1, Default Mode Is 1 (12 Hour), hours (Set Clock Hour In 24 Hour), hrs (Set Clock Hour In 12 Hours), mins and secs (Clock Minutes and Seconds), alarmhours (Set Alarm Hour In 24 Hour), hr_12 (Set Alarm Hour In 12 Hours), alarmmins and alarmsecs (Alarm Minutes and Seconds), alstate (Enables = 1 and Disables = 0 The Alarm)
+unsigned char state = 1, mde = 1, hours = 12, hrs = 12, mins = 0, secs = 0, alarmhours = 12,  hr_12 = 12, alarmmins = 0, alarmsecs = 0, alstate = 0;
+// Display Hours, Display Minutes, Display Seconds
+char showhour[2], showmin[2], showsec[2];
+char* AMPM = "PM"; //AM/PM For Set Clock Time 
+char* AMPM_12 = "PM";//AM/PM For Set Alarm Time
+
+// Interrupt Service Routine 
+ISR(TIMER1_COMPA_vect); // Timer/Counter1's Compare Match A
+ISR(INT0_vect); // Set Clock Time
+
+int main(void)
+{
+	DDRD = 0x00; // DDRD set to input
+	PORTD = 0xFF; // PORTD enable pull up resistors
+	DDRB |= BUZZER_PIN; // Set PB3 as output pin for the buzzer
+	GIMSK=(1<<INT0); //External Interrupt request 0 enable
+	MCUCR=(1<<ISC01)|(1<<ISC11); //External interrupt triggered on falling edge
+	sei();
+	TCCR1B = (1<<CS12|1<<CS10|1<<WGM12);
+	OCR1A = 977;
+	//Output Compare Interrupt Enabled
+	TIMSK = (1<<OCIE1A);
+	lcd_init(); 
+	while (1)
+	{		
+		switch (state)
+		{
+			case 1: //Normal Clock State
+			state_1(); 
+			break;
+			case 2: //Change Clock Mode State 
+			state_2();
+			case 3: //Set Clock Alarm Time State
+			state_3();
+			break;
+			case 4: //Snooze 5 Mins State
+			state_4();
+			break;
+		}
+		//	Change Clock Mode State
+		if ((PIND & (1 << PIND1)) == 0)
+		{
+			_delay_ms(10);
+			if (state == 1)
+			{
+				_delay_ms(10);
+				state = 2;
+			}
+		}
+		//	Enable Clock Alarm State
+		else if ((PIND & (1 << PIND3)) == 0)
+		{
+			_delay_ms(10);
+			if ((state == 1) && (alstate == 0))
+			{
+				_delay_ms(10);
+				alstate = 1;
+				lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+				_delay_ms(1);
+				lcd_gotoxy(1,1);
+				lcd_print("Alarm Is On");
+				_delay_ms(200);
+				state = 3;
+			}
+		}
+		//	Disable Clock Alarm State
+		else if ((PIND & (1 << PIND4)) == 0)
+		{
+			_delay_ms(10);
+			if ((state == 1) && (alstate == 1))
+			{
+				_delay_ms(10);
+				alstate = 0;
+				lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+				_delay_ms(1);
+				lcd_gotoxy(1,1);
+				lcd_print("Alarm Is Off");
+				_delay_ms(200);
+			}
+		}
+		//	Motivation
+		else if ((PIND & (1 << PIND6)) == 0)
+		{
+			_delay_ms(10);
+			if (state == 1)
+			{
+				_delay_ms(10);
+				lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+				_delay_ms(1);
+				lcd_gotoxy(1,1);
+				lcd_print("JUST DO IT!!!");
+				_delay_ms(200);
+			}
+		}
+	}			
+	return 0;
+}
+																				/*******************************************************************************************/
+																				/*****************************   FUNCTIONS FOR LCD INTERFACE   *****************************/
+																				/*******************************************************************************************/
+void lcdCommand(unsigned char cmnd )
+{
+	LCD_PRT = (LCD_PRT & 0x0F) | (cmnd & 0xF0);
+	LCD_PRT &= ~ (1<<LCD_RS); //RS = 0 for command
+	LCD_PRT &= ~ (1<<LCD_RW); //RW = 0 for write
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+	_delay_us(20); //wait
+	LCD_PRT = (LCD_PRT & 0x0F) | (cmnd << 4);
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+}
+void lcdData(unsigned char data )
+{
+	LCD_PRT = (LCD_PRT & 0x0F) | (data & 0xF0);
+	LCD_PRT |= (1<<LCD_RS); //RS = 1 for data
+	LCD_PRT &= ~ (1<<LCD_RW); //RW = 0 for write
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+	LCD_PRT = (LCD_PRT & 0x0F) | (data << 4);
+	LCD_PRT |= (1<<LCD_EN); //EN = 1 for H-to-L
+	_delay_us(1); //wait to make EN wider
+	LCD_PRT &= ~ (1<<LCD_EN); //EN = 0 for H-to-L
+}
+void lcd_init(void)
+{
+	LCD_DDR = 0xFF; //LCD port is output
+	LCD_PRT &=~(1<<LCD_EN); //LCD_EN = 0
+	_delay_us(2000); //wait for stable power
+	lcdCommand(0x33); //$33 for 4-bit mode
+	_delay_us(100); //wait
+	lcdCommand(0x32); //$32 for 4-bit mode
+	_delay_us(100); //wait
+	lcdCommand(0x28); //$28 for 4-bit mode
+	_delay_us(100); //wait
+	lcdCommand(0x0c); //display on, cursor off (0x0e = display on, cursor on)
+	_delay_us(100); //wait
+	lcdCommand(0x01); //clear LCD
+	_delay_us(2000); //wait
+	lcdCommand(0x06); //shift cursor right
+	_delay_us(100);
+}
+void lcd_gotoxy(unsigned char x, unsigned char y)
+{ 
+	unsigned char firstCharAdr[] = {0x80, 0xC0, 0x94, 0xD4};
+	lcdCommand(firstCharAdr[y-1] + x - 1);
+	_delay_us(100);
+}
+void lcd_print(char * str)
+{
+	unsigned char i = 0;
+	while(str[i]!=0)
+	{
+		lcdData(str[i]);
+		i++;
+	}
+}
+																				/*******************************************************************************************/
+																				/***************************   TIMER/COUNTER1'S COMPARE MATCH A   **************************/
+																				/*******************************************************************************************/															
+ISR (TIMER1_COMPA_vect)
+{
+	secs++;
+	if(secs == 60)
+	{
+		secs = 0;
+		mins++;
+	}
+	if(mins == 60)
+	{
+		mins = 0;
+		secs = 0;
+		hours++;
+	}
+	if ((hours < 12) && (hours >= 1) && (mde == 1))
+	{
+		hrs = hours;
+		AMPM = "AM";
+	}
+	if ((hours == 12) && (mde == 1))
+	{
+		hrs = hours;
+		AMPM = "PM";
+	}
+	if ((hours > 12) && (hours < 24) && (mde == 1))
+	{
+		hrs = hours - 12;
+		AMPM = "PM";
+	}
+	if ((hours == 24) && (mde == 1))
+	{
+		hrs = 12;
+		hours = 0;
+		AMPM = "AM";
+	}
+	if ((hours == 24) && (mde == 2))
+	{
+		hours = 0;
+		mins = 0;
+		secs = 0;
+	}
+}
+																				/*******************************************************************************************/
+																				/*******************   ISR AND FUNCTIONS CONTROLLING THE CLOCK STATES   ********************/
+																				/*******************************************************************************************/																
+void show12(void)// Time In 12 H (State 1 and Set Clock Time)
+{
+	lcd_gotoxy(1,2);
+	itoa(hrs/10,showhour,10);
+	lcd_print(showhour);
+	itoa(hrs%10,showhour,10);
+	lcd_print(showhour);
+	lcd_print(":");
+	itoa(mins/10,showmin,10);
+	lcd_print(showmin);
+	itoa(mins%10,showmin,10);
+	lcd_print(showmin);
+	lcd_print(":");
+	itoa(secs/10,showsec,10);
+	lcd_print(showsec);
+	itoa(secs%10,showsec,10);
+	lcd_print(showsec);
+	lcd_print(" ");
+	lcd_print(AMPM);
+}
+void show24(void)// Time In 24 H (state 1 and Set Clock Time)
+{
+	lcd_gotoxy(1,2);
+	itoa(hours/10,showhour,10);
+	lcd_print(showhour);
+	itoa(hours%10,showhour,10);
+	lcd_print(showhour);
+	lcd_print(":");
+	itoa(mins/10,showmin,10);
+	lcd_print(showmin);
+	itoa(mins%10,showmin,10);
+	lcd_print(showmin);
+	lcd_print(":");
+	itoa(secs/10,showsec,10);
+	lcd_print(showsec);
+	itoa(secs%10,showsec,10);
+	lcd_print(showsec);
+}
+void show_12(void)// Time In 12 H (Set Alarm Time)
+{
+	lcd_gotoxy(1,2);
+	itoa(hr_12/10,showhour,10);
+	lcd_print(showhour);
+	itoa(hr_12%10,showhour,10);
+	lcd_print(showhour);
+	lcd_print(":");
+	itoa(alarmmins/10,showmin,10);
+	lcd_print(showmin);
+	itoa(alarmmins%10,showmin,10);
+	lcd_print(showmin);
+	lcd_print(":");
+	itoa(alarmsecs/10,showsec,10);
+	lcd_print(showsec);
+	itoa(alarmsecs%10,showsec,10);
+	lcd_print(showsec);
+	lcd_print(" ");
+	lcd_print(AMPM_12);
+}
+void showAlarm(void)// Show Alarm Time (24 H)
+{
+	lcd_gotoxy(1,2);
+	itoa(alarmhours/10,showhour,10);
+	lcd_print(showhour);
+	itoa(alarmhours%10,showhour,10);
+	lcd_print(showhour);
+	lcd_print(":");
+	itoa(alarmmins/10,showmin,10);
+	lcd_print(showmin);
+	itoa(alarmmins%10,showmin,10);
+	lcd_print(showmin);
+	lcd_print(":");
+	itoa(alarmsecs/10,showsec,10);
+	lcd_print(showsec);
+	itoa(alarmsecs%10,showsec,10);
+	lcd_print(showsec);
+}
+//Normal Clock State
+void state_1(void)
+{
+	_delay_ms(10);
+	
+	if (mde == 1)
+	{
+		if (alstate == 0)
+		{
+			lcd_gotoxy(1,1);
+			lcd_print("Current Time Is:");
+		}
+		else if (alstate == 1)
+		{
+			lcd_gotoxy(1,1);
+			lcd_print("Current Time: AL");
+		}
+		show12();
+	}
+	else if (mde == 2)
+	{
+		if (alstate == 0)
+		{
+			lcd_gotoxy(1,1);
+			lcd_print("Current Time Is:");
+		}
+		else if (alstate == 1)
+		{
+			lcd_gotoxy(1,1);
+			lcd_print("Current Time: AL");
+		}
+		show24();
+	}
+	if ((alstate == 1) && ((alarmhours == hours) && (alarmmins == mins) && (alarmsecs == secs)))
+	{
+		while ((PIND & (1 << PIND0)) == 1)
+		{
+			//	Snooze 5 mins
+			if ((PIND & (1 << PIND5)) == 0)
+			{
+				_delay_ms(10);
+				state = 4;
+				break;
+			}
+			lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+			_delay_ms(1);
+			lcd_gotoxy(1,1);
+			lcd_print("It Is Time!");
+			if (mde == 1)
+			{ show_12(); }
+			else 
+			{ showAlarm(); }
+			PORTB |= BUZZER_PIN; // Turn on the buzzer
+			_delay_ms(200); // Delay for 300 milliseconds (adjust as needed)
+			PORTB &= ~BUZZER_PIN; // Turn off the buzzer
+			_delay_ms(50); // Delay for another 100 milliseconds
+		}
+		if ((PIND & (1 << PIND0)) == 0)
+		{
+			alstate = 0;
+			PORTB &= ~BUZZER_PIN; // Turn off the buzzer
+		}
+	}
+}
+//Set Clock Mode State
+void state_2(void)
+{
+	_delay_ms(50);
+	lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+	_delay_ms(1);
+	if ((state == 2) && (mde == 1)) // Change to 24 hours
+	{
+		if (hours == 24)
+		{
+			hours = 0;
+		}
+		mde = 2;
+		lcd_gotoxy(1,1);
+		lcd_print("Current Mode Is:");
+		lcd_gotoxy(1,2);
+		lcd_print("2");
+		_delay_ms(200);
+	}
+	else if ((state == 2) && (mde == 2)) //Change to default 12 hours
+	{
+		if (hours == 24)
+		{
+			hrs = 12;
+			hours = 0;
+		}
+		mde = 1;
+		lcd_gotoxy(1,1);
+		lcd_print("Current Mode Is:");
+		lcd_gotoxy(1,2);
+		lcd_print("1");
+		_delay_ms(200);
+	}
+	state = 1;
+}
+//Set Clock Time ISR
+ISR(INT0_vect)
+{
+	// Timer Stops
+	_delay_ms(50);
+	lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+	_delay_ms(1);
+	while ((PIND & (1 << PIND0)) == 1)
+	{
+		lcd_gotoxy(1,1);
+		lcd_print("Current Time Is:");
+		if (mde == 1)
+		{
+			show12();
+		}
+		else
+		{
+			show24();
+		}	
+		if ((PIND & (1 << PIND4)) == 0)
+		{
+			hours = incrementHour(hours);
+		}
+		if ((PIND & (1 << PIND5)) == 0)
+		{
+			mins = incrementMS(mins);
+		}
+		if ((PIND & (1 << PIND6)) == 0)
+		{
+			secs = incrementMS(secs);
+		}
+	}
+	lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+	_delay_ms(1);
+	state = 1;
+}
+//Set Clock Alarm Time State
+void state_3(void)
+{
+	_delay_ms(50);
+	lcdCommand(LCD_CMD_CLEAR_DISPLAY); 
+	_delay_ms(1);
+	while ((state == 3) && ((PIND & (1 << PIND0)) == 1))
+	{
+		lcd_gotoxy(1,1);
+		lcd_print("Alarm Time Is:");
+		if (mde == 1)
+		{
+			show_12();
+		}
+		else
+		{
+			showAlarm();
+		}
+		if ((PIND & (1 << PIND4)) == 0)
+		{
+			alarmhours = incrementAHour(alarmhours);
+		}
+		if ((PIND & (1 << PIND5)) == 0)
+		{
+			alarmmins = incrementMS(alarmmins);
+		}
+		if ((PIND & (1 << PIND6)) == 0)
+		{
+			alarmsecs = incrementMS(alarmsecs);
+		}
+	}
+	lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+	_delay_ms(1);
+	state = 1;
+}
+//Snooze 5 Mins State
+void state_4(void)
+{
+	// Timer Does Not Stop
+	_delay_ms(50);
+	PORTB &= ~BUZZER_PIN; // Turn off the buzzer
+	if ((state == 4) && (alarmmins < 55))
+	{
+		alarmmins += 5;
+	}
+	else if ((state == 4) && (alarmmins >= 55))
+	{
+		alarmhours = incrementAHour(alarmhours);
+		switch (alarmmins)
+		{
+			case 55:
+			alarmmins = 0;
+			break;
+			case 56:
+			alarmmins = 1;
+			break;
+			case 57:
+			alarmmins = 2;
+			break;
+			case 58:
+			alarmmins = 3;
+			break;
+			case 59:
+			alarmmins = 4;
+			break;
+		}
+	}
+	lcdCommand(LCD_CMD_CLEAR_DISPLAY);
+	_delay_ms(1);
+	alstate = 1;
+	state = 1;
+}
+// Increment the Hour (Set Clock Time)
+unsigned char incrementHour(unsigned char H)
+{
+	_delay_ms(50);
+	if (H < 23)
+	{
+		H++;
+		if (H == 12)
+		{hrs = 12;}
+		else
+		{hrs = H % 12;}
+		if (H < 12)
+		{AMPM = "AM";}
+		else
+		{AMPM = "PM";}
+	}
+	else if (H == 23)
+	{
+		hrs = 12;
+		H = 0;
+		AMPM = "AM";
+	}
+	return H;
+}
+// Increment the Hour (Set Alarm Time)
+unsigned char incrementAHour(unsigned char AH)
+{
+	_delay_ms(50);
+	if (AH < 23)
+	{
+		AH++;
+		if (AH == 12)
+		{hr_12 = 12;}
+		else
+		{hr_12 = AH % 12;}
+		if (AH < 12)
+		{AMPM_12 = "AM";}
+		else
+		{AMPM_12 = "PM";}
+	}
+	else if (AH == 23)
+	{
+		hr_12 = 12;
+		AH = 0;
+		AMPM_12 = "AM";
+	}
+	return AH;
+}
+// Increment the Minute and Second
+unsigned char incrementMS(unsigned char MS)
+{
+	_delay_ms(50);
+	if (MS < 59)
+	{
+		MS++;
+	}
+	else if (MS == 59)
+	{
+		MS = 0;
+	}
+	return MS;
+}
+
